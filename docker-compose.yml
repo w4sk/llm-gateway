@@ -2,8 +2,9 @@ services:
   vllm:
     image: vllm/vllm-openai:latest
     container_name: llm-gateway-vllm
+    # Port offset for direct access bypassing the gateway
     ports:
-      - "18000:8000"
+      - "18001:8000"
 
     environment:
       HF_TOKEN: ${HF_TOKEN}
@@ -23,3 +24,16 @@ services:
             - driver: nvidia
               count: all
               capabilities: [ gpu ]
+
+  gateway:
+    build:
+      context: .
+      dockerfile: docker/fastapi/Dockerfile
+    container_name: llm-gateway-api
+    ports:
+      - "18000:8000"
+    environment:
+      - VLLM_URL=http://vllm:8000
+      - VLLM_API_KEY=${VLLM_API_KEY}
+    depends_on:
+      - vllm
