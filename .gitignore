@@ -125,3 +125,4 @@ cython_debug/
 # Project specific
 # Models and caches
 data/
+output/

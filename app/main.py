@@ -5,6 +5,8 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any, Union
 import httpx
 import os
+import glob
+import json
 
 app = FastAPI(
     title="LLM Gateway",
@@ -14,7 +16,7 @@ app = FastAPI(
 
 VLLM_URL = os.getenv("VLLM_URL", "http://vllm:8000")
 VLLM_API_KEY = os.getenv("VLLM_API_KEY", "")
-DEFAULT_MODEL = "Qwen/Qwen3.5-9B"
+DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "Qwen/Qwen2.5-7B-Instruct")
 
 # Configure HTTPBearer for Swagger UI
 security = HTTPBearer(auto_error=False)
@@ -25,7 +27,7 @@ client = httpx.AsyncClient(base_url=VLLM_URL, timeout=None)
 
 class Message(BaseModel):
     role: str = Field(..., description="roles: system, user, assistant")
-    content: str = Field(..., description="Message content")
+    content: Union[str, List[Dict[str, Any]]] = Field(..., description="Message content")
 
 class ChatCompletionRequest(BaseModel):
     model: str = Field(DEFAULT_MODEL, description="Model repository name")
@@ -127,6 +129,40 @@ async def chat_completions(
             
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/v1/scenefun3d/results")
+async def list_scenefun3d_results():
+    """List available SceneFun3D results."""
+    # Use relative path from /app
+    output_dir = "output/scenefun3d"
+    pattern = os.path.join(output_dir, "*_selected.json")
+    files = glob.glob(pattern)
+    results = []
+    for f in files:
+        basename = os.path.basename(f)
+        # Expected filename: {visit_id}_{video_id}_selected.json
+        name_part = basename.replace("_selected.json", "")
+        parts = name_part.split("_")
+        if len(parts) >= 2:
+            results.append({
+                "visit_id": parts[0],
+                "video_id": parts[1]
+            })
+    return results
+
+@app.get("/v1/scenefun3d/results/{visit_id}/{video_id}")
+async def get_scenefun3d_result(visit_id: str, video_id: str):
+    """Get the detail of a specific SceneFun3D result."""
+    file_path = f"output/scenefun3d/{visit_id}_{video_id}_selected.json"
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Result file not found")
+    
+    try:
+        with open(file_path, "r") as f:
+            data = json.load(f)
+        return data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error reading result: {str(e)}")
 
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE"], include_in_schema=False)
 async def proxy_fallback(request: Request, path: str):
